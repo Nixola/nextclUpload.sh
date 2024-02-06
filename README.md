@@ -1,8 +1,8 @@
 # nextclUpload.sh
-This thing is a Bash script that allows you to upload big files to any Nextcloud instance using the chunked upload api (v2).
+This thing is a Bash script that allows you to upload big files to any Nextcloud instance using the chunked upload api (v2). Requires `curl` and very little else, if anything.
 ## Usage
 ```
-Usage: $(basename $0) [-s <chunkSize>] source destination
+Usage: nextclUpload.sh [-s <chunkSize>] source destination
 
 -s <chunkSize>: the size of the chunks to split your uploaded file into. Defaults to 10M. Bigger chunks will (probably?) be faster, at the expense of wasting more time were your connection to be interrupted.
 
