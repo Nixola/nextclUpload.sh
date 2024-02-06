@@ -129,7 +129,7 @@ determineSizes $source
 echo "Start uploading from byte $uploaded"
 while ((uploaded<fileSize)) ; do
     ((last++))
-    echo -n "Uploading chunk $last from byte $uploaded/$fileSize"
+    echo "Uploading chunk $last from byte $uploaded/$fileSize"
     fileId=$(printf %05d $last)
     ((remaining=fileSize-uploaded))
     ((chunkSize=(chunkSize<remaining)?chunkSize:remaining))
