@@ -8,7 +8,7 @@ This thing is a Bash script that allows you to upload big files to any Nextcloud
 `source` is the file to be uploaded, while `destination` is the full WebDAV endpoint of your desired destination, such as `https://example.com/nextcloud/remote.php/dav/files/nix/Examples/foobar.txt` .
 
 An application password _must_ be provided via the `NEXTCLUPLOAD_SECRET` environment variable.
-```
+
 
 ## FAQ
 There are none.
