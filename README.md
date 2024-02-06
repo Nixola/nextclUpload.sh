@@ -4,6 +4,7 @@ This thing is a Bash script that allows you to upload big files to any Nextcloud
 `nextclUpload.sh [-s <chunkSize>] source destination`
 
 `-s <chunkSize>`: the size of the chunks to split your uploaded file into. Defaults to 10M. Bigger chunks will (probably?) be faster, at the expense of wasting more time were your connection to be interrupted.
+It can have a BKMGT suffix but it must be an integer, because I'm not dealing with floating point math in Bash and I don't want to depend on awk, as silly as that may be.
 
 `source` is the file to be uploaded, while `destination` is the full WebDAV endpoint of your desired destination, such as `https://example.com/nextcloud/remote.php/dav/files/nix/Examples/foobar.txt` .
 

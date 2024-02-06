@@ -5,6 +5,7 @@ Help() {
 Usage: $(basename $0) [-s <chunkSize>] source destination
 
 -s <chunkSize>: the size of the chunks to split your uploaded file into. Defaults to 10M. Bigger chunks will (probably?) be faster, at the expense of wasting more time were your connection to be interrupted.
+It can have a BKMGT suffix but it must be an integer, because I'm not dealing with floating point math in Bash and I don't want to depend on awk, as silly as that may be.
 
 source is the file to be uploaded, while destination is the full WebDAV endpoint of your desired destination, such as https://example.com/nextcloud/remote.php/dav/files/nix/Examples/foobar.txt .
 
@@ -56,6 +57,25 @@ checkSecret() {
 	fi
 }
 
+validateChunkSize() {
+	if [[ -n $1 ]] ; then
+		if echo $1 | grep -E '^[0-9]+[BKMGT]?$' >/dev/null ; then
+			local number=$(echo $1 | grep -o -E '^[0-9]+')
+			local suffix=${1:0-1}
+			case $suffix in
+				T) ((number*=1024)) ;&
+				G) ((number*=1024)) ;&
+				M) ((number*=1024)) ;&
+				K) ((number*=1024)) ;;
+			esac
+			chunkSize=$number
+		else
+			echo "Please use an appropriate size."
+			exit -1
+		fi
+	fi
+}
+
 parseResumeEntries() {
 	while IFS= read -r entry; do
         href=$(grep -o -P '<d:href>(.+?)</d:href>' <<< $entry | sed -E 's/<\/?d:href>//g')
@@ -89,6 +109,7 @@ determineSizes() {
 validateSourceFile $1
 parseDestinationArgument $2
 checkSecret
+validateChunkSize $chunkSize
 
 # Get the contents of the expected upload folder
 test="$(curl -u $user:$NEXTCLUPLOAD_SECRET "${host}uploads/${user}/$name" -X PROPFIND)"
