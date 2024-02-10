@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 Help() {
-	cat <<EOF
+    cat <<EOF
 Usage: $(basename $0) [-s <chunkSize>] source destination
 
 -s <chunkSize>: the size of the chunks to split your uploaded file into. Defaults to 10M. Bigger chunks will (probably?) be faster, at the expense of wasting more time were your connection to be interrupted.
@@ -14,128 +14,132 @@ EOF
 }
 
 while getopts ":s:h" option; do
-	case $option in
-		s)
-			chunkSize=$OPTARG;;
-		h)
-			;&
-		\?)
-			Help
-			exit;;
-	esac
+    case $option in
+        s)
+            chunkSize="$OPTARG";;
+        h)
+            ;&
+        \?)
+            Help
+            exit;;
+    esac
 done
 shift $((OPTIND-1))
 
 validateSourceFile() {
-	source=$1
-	if [[ ! -r $source || ! -f $source ]] ; then
-		echo "Source file must exist, be a file, and be readable."
-		exit -1
-	fi
-	local filename=$(basename $source)
-	local hash=$(md5sum $source | cut -d " " -f1)
-	name="$hash-$filename"
+    source="$1"
+    if [[ ! -r "$source" || ! ( -f "$source" || -b "$source" ) ]] ; then
+        echo "Source file must exist, be a file or block device, and be readable."
+        exit -1
+    fi
+    local filename=$(basename "$source")
+    local hash=$(md5sum "$source" | cut -d " " -f1)
+    name="$hash-$filename"
 }
 
 parseDestinationArgument() {
-	destination=$1
-	host=${1%/remote.php/dav/*}/remote.php/dav/
-	local path=${1#*/remote.php/dav/files/}
-	user=${path%%/*}
-	if [[ -z $host || -z $user ]] ; then
-		echo "Please specify a valid destination."
-		exit -1
-	fi
-	destinationHeader="Destination: Destination $destination"
-	destinationHeaderMove="Destination: $destination"
+    destination="$1"
+    host="${1%/remote.php/dav/*}/remote.php/dav/"
+    local path="${1#*/remote.php/dav/files/}"
+    user="${path%%/*}"
+    if [[ -z "$host" || -z "$user" ]] ; then
+        echo "Please specify a valid destination."
+        exit -1
+    fi
+    destinationHeader="Destination: Destination $destination"
+    destinationHeaderMove="Destination: $destination"
 }
 
 checkSecret() {
-	if [[ -z $NEXTCLUPLOAD_SECRET ]] ; then
-		echo "A secret, or application password, must be provided."
-		exit -1
-	fi
+    if [[ -z "$NEXTCLUPLOAD_SECRET" ]] ; then
+        echo "A secret, or application password, must be provided."
+        exit -1
+    fi
 }
 
 validateChunkSize() {
-	if [[ -n $1 ]] ; then
-		if echo $1 | grep -E '^[0-9]+[BKMGT]?$' >/dev/null ; then
-			local number=$(echo $1 | grep -o -E '^[0-9]+')
-			local suffix=${1:0-1}
-			case $suffix in
-				T) ((number*=1024)) ;&
-				G) ((number*=1024)) ;&
-				M) ((number*=1024)) ;&
-				K) ((number*=1024)) ;;
-			esac
-			chunkSize=$number
-		else
-			echo "Please use an appropriate size."
-			exit -1
-		fi
-	fi
+    if [[ -n "$1" ]] ; then
+        if echo "$1" | grep -E '^[0-9]+[BKMGT]?$' >/dev/null ; then
+            local number=$(echo "$1" | grep -o -E '^[0-9]+')
+            local suffix="${1:0-1}"
+            case "$suffix" in
+                T) ((number*=1024)) ;&
+                G) ((number*=1024)) ;&
+                M) ((number*=1024)) ;&
+                K) ((number*=1024)) ;;
+            esac
+            chunkSize="$number"
+        else
+            echo "Please use an appropriate size."
+            exit -1
+        fi
+    fi
 }
 
 parseResumeEntries() {
-	while IFS= read -r entry; do
+    while IFS= read -r entry; do
         href=$(grep -o -P '<d:href>(.+?)</d:href>' <<< $entry | sed -E 's/<\/?d:href>//g')
-        number=${href##*/}
-        if [[ -z $number || $number == ".file" ]] ; then
+        number="${href##*/}"
+        if [[ -z "$number" || "$number" == ".file" ]] ; then
             continue
         fi
-        if [[ $number > $last ]] ; then
-            last=$number
+        if [[ "$number" -gt "$last" ]] ; then
+            last="$number"
         fi
         resumeChunkSize=$(grep -o -P '<d:getcontentlength>\d+</d:getcontentlength>' <<< $entry | sed -E 's/<\/?d:getcontentlength>//g')
         ((uploaded+=resumeChunkSize))
-        if [[ -z $firstChunkSize ]] ; then
-            firstChunkSize=$resumeChunkSize
+        if [[ -z "$firstChunkSize" ]] ; then
+            firstChunkSize="$resumeChunkSize"
         fi
     done <<< "$1"
 }
 
 determineSizes() {
-	fileSize=$(du -b --apparent-size $1 | cut -f1)
-	if [[ -z $chunkSize ]] ; then
-	    chunkSize=$firstChunkSize
-	fi
-	if [[ -z $chunkSize ]] ; then
-		chunkSize=$(( fileSize < 10*1024*1024 ? fileSize : 10*1024*1024 ))
-	fi
+    if [[ -b "$1" ]] ; then
+        fileSize=$(blockdev --getsize64 "$1")
+    else
+        fileSize=$(du -b --apparent-size "$1" | cut -f1)
+    fi
+    if [[ -z "$chunkSize" ]] ; then
+        chunkSize="$firstChunkSize"
+    fi
+    if [[ -z "$chunkSize" ]] ; then
+        chunkSize=$(( fileSize < 10*1024*1024 ? fileSize : 10*1024*1024 ))
+    fi
 
-	chunks=$(( (fileSize+chunkSize-1)/chunkSize ))
+    chunks=$(( (fileSize+chunkSize-1)/chunkSize ))
 }
 
-validateSourceFile $1
-parseDestinationArgument $2
+validateSourceFile "$1"
+parseDestinationArgument "$2"
 checkSecret
-validateChunkSize $chunkSize
+validateChunkSize "$chunkSize"
 
 # Get the contents of the expected upload folder
 test="$(curl -u $user:$NEXTCLUPLOAD_SECRET "${host}uploads/${user}/$name" -X PROPFIND)"
 uploaded=0
 last=0
 if grep -qs -F "<s:exception>Sabre\DAV\Exception\NotFound</s:exception>" <<< "$test" ; then # Fresh upload, preparations are needed
-	echo "Creating upload folder"
-	curl -X MKCOL -u $user:$NEXTCLUPLOAD_SECRET --header "$destHeader" "${host}uploads/${user}/$name"
+    echo "Creating upload folder"
+    curl -X MKCOL -u $user:$NEXTCLUPLOAD_SECRET --header "$destHeader" "${host}uploads/${user}/$name"
 else
-	echo "Resuming upload..."
+    echo "Resuming upload..."
     entries=$(grep -o -P '<d:response>(.+?)</d:response>' <<< $test)
     parseResumeEntries "$entries"
 fi
 
-determineSizes $source
+determineSizes "$source"
 
 echo "Start uploading from byte $uploaded"
 while ((uploaded<fileSize)) ; do
     ((last++))
     echo "Uploading chunk $last from byte $uploaded/$fileSize"
-    fileId=$(printf %05d $last)
+    fileId=$(printf %05d "$last")
     ((remaining=fileSize-uploaded))
     ((chunkSize=(chunkSize<remaining)?chunkSize:remaining))
-    tail -c +$((uploaded+1)) $source | head -c $chunkSize | \
+    tail -c +$((uploaded+1)) "$source" | head -c "$chunkSize" | \
         curl --data-binary @- -X PUT -u "$user:$NEXTCLUPLOAD_SECRET" --header "$destinationHeader" --header "OC-Total-Length: $fileSize" "${host}uploads/${user}/$name/$fileId"
     ((uploaded+=chunkSize))
 done
 
-curl -X MOVE -u $user:$NEXTCLUPLOAD_SECRET --header "$destinationHeaderMove" --header "OC-Total-Length: $fileSize" "${host}uploads/${user}/${name}/.file"
+curl -X MOVE -u "$user:$NEXTCLUPLOAD_SECRET" --header "$destinationHeaderMove" --header "OC-Total-Length: $fileSize" "${host}uploads/${user}/${name}/.file"
