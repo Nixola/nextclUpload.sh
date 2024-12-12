@@ -13,10 +13,12 @@ An application password _must_ be provided via the NEXTCLUPLOAD_SECRET environme
 EOF
 }
 
-while getopts ":s:h" option; do
+while getopts ":s:n:h" option; do
     case $option in
         s)
             chunkSize="$OPTARG";;
+        n)
+            remoteName="$OPTARG";;
         h)
             ;&
         \?)
@@ -33,12 +35,21 @@ validateSourceFile() {
         exit -1
     fi
     local filename=$(basename "$source")
-    local hash=$(md5sum "$source" | cut -d " " -f1)
-    name="$hash-$filename"
+    if [[ -z "$remoteName" ]] ; then
+        local hash=$(md5sum "$source" | cut -d " " -f1)
+        name="$hash-$filename"
+    else
+        name="$remoteName-$filename"
+    fi
+    name=$(jq -rn --arg x "$name" '$x|@uri')
 }
 
 parseDestinationArgument() {
     destination="$1"
+    if [[ ${destination: -1} == "/" ]] ; then
+        bname=$(basename "$source")
+        destination="${destination}$bname"
+    fi
     host="${1%/remote.php/dav/*}/remote.php/dav/"
     local path="${1#*/remote.php/dav/files/}"
     user="${path%%/*}"
@@ -46,7 +57,7 @@ parseDestinationArgument() {
         echo "Please specify a valid destination."
         exit -1
     fi
-    destinationHeader="Destination: Destination $destination"
+    destinationHeader="Destination: $destination"
     destinationHeaderMove="Destination: $destination"
 }
 
@@ -83,7 +94,7 @@ parseResumeEntries() {
         if [[ -z "$number" || "$number" == ".file" ]] ; then
             continue
         fi
-        if [[ "$number" -gt "$last" ]] ; then
+        if [[ $((10#$number)) -gt $((10#$last)) ]] ; then
             last="$number"
         fi
         resumeChunkSize=$(grep -o -P '<d:getcontentlength>\d+</d:getcontentlength>' <<< $entry | sed -E 's/<\/?d:getcontentlength>//g')
@@ -121,6 +132,7 @@ uploaded=0
 last=0
 if grep -qs -F "<s:exception>Sabre\DAV\Exception\NotFound</s:exception>" <<< "$test" ; then # Fresh upload, preparations are needed
     echo "Creating upload folder"
+    echo curl -X MKCOL -u $user:$NEXTCLUPLOAD_SECRET --header "$destHeader" "${host}uploads/${user}/$name"
     curl -X MKCOL -u $user:$NEXTCLUPLOAD_SECRET --header "$destHeader" "${host}uploads/${user}/$name"
 else
     echo "Resuming upload..."
@@ -133,7 +145,7 @@ determineSizes "$source"
 echo "Start uploading from byte $uploaded"
 while ((uploaded<fileSize)) ; do
     ((last++))
-    echo "Uploading chunk $last from byte $uploaded/$fileSize"
+    echo "Uploading chunk $last [$((uploaded*100 / fileSize))%]"
     fileId=$(printf %05d "$last")
     ((remaining=fileSize-uploaded))
     ((chunkSize=(chunkSize<remaining)?chunkSize:remaining))
@@ -142,4 +154,5 @@ while ((uploaded<fileSize)) ; do
     ((uploaded+=chunkSize))
 done
 
+echo "Finalizing upload..."
 curl -X MOVE -u "$user:$NEXTCLUPLOAD_SECRET" --header "$destinationHeaderMove" --header "OC-Total-Length: $fileSize" "${host}uploads/${user}/${name}/.file"
